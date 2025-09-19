@@ -4,6 +4,11 @@ Debian设置网络：
 ```
 bash <(curl -sL "https://raw.githubusercontent.com/qichiyuhub/autoshell/refs/heads/main/debian_network.sh")
 ```
+Debian网络优化：
+```
+bash <(curl -sL "https://raw.githubusercontent.com/qichiyuhub/autoshell/refs/heads/main/optimize.sh")
+```
+
 sing-box安装：
 ```
 bash <(curl -sL "https://raw.githubusercontent.com/qichiyuhub/autoshell/refs/heads/main/install_singbox.sh")

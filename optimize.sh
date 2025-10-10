@@ -15,8 +15,8 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 # --- 全局变量与配置 ---
-SYSCTL_CONF_FILE="/etc/sysctl.conf"
-LIMITS_CONF_FILE="/etc/security/limits.conf"
+SYSCTL_CONF_FILE="/etc/sysctl.d/99-custom-network-tuning.conf"
+LIMITS_CONF_FILE="/etc/security/limits.d/99-custom-limits.conf"
 TEMP_SYSCTL_FILE=$(mktemp)
 
 # 定义用于管理配置块的标记
@@ -40,7 +40,7 @@ apply_sysctl_value() {
 # 根据内存大小确定优化策略
 mem_total_kb=$(grep MemTotal /proc/meminfo | awk '{print $2}')
 mem_total_mb=$((mem_total_kb / 1024))
-strategy="dedicated_proxy_le_2gb" # 默认策略适用于小内存专用服务器
+strategy="dedicated_proxy_le_2gb"
 if [ "$mem_total_mb" -gt 2000 ]; then
     strategy="high_performance_gt_2gb"
 fi
@@ -115,7 +115,7 @@ sysctl_values["vm.swappiness"]="10"
 
 # 主动尝试加载并启用 BBR
 bbr_status_message="BBR: 内核不支持或模块加载失败。"
-modprobe tcp_bbr >/dev/null 2 outlandish
+modprobe tcp_bbr >/dev/null 2>&1
 if [[ $(sysctl -n net.ipv4.tcp_available_congestion_control) == *"bbr"* ]]; then
     sysctl_values["net.core.default_qdisc"]="fq"
     sysctl_values["net.ipv4.tcp_congestion_control"]="bbr"
@@ -130,22 +130,21 @@ for key in "${!sysctl_values[@]}"; do
     apply_sysctl_value "$key" "${sysctl_values[$key]}"
 done
 
-if [ -f "$SYSCTL_CONF_FILE" ]; then
-    sed -i "/^${SYSCTL_MARKER_START}$/,/^${SYSCTL_MARKER_END}$/d" "$SYSCTL_CONF_FILE"
-fi
+echo "正在写入内核配置文件: $SYSCTL_CONF_FILE"
 {
     echo ""
     echo "$SYSCTL_MARKER_START"
     echo "# Strategy: $strategy, Applied: $(date '+%F %T')"
     cat "$TEMP_SYSCTL_FILE"
     echo "$SYSCTL_MARKER_END"
-} >> "$SYSCTL_CONF_FILE"
+} > "$SYSCTL_CONF_FILE"
 rm "$TEMP_SYSCTL_FILE"
-sysctl_apply_output=$(sysctl -p 2>&1)
 
-if [ -f "$LIMITS_CONF_FILE" ]; then
-    sed -i "/^${LIMITS_MARKER_START}$/,/^${LIMITS_MARKER_END}$/d" "$LIMITS_CONF_FILE"
-fi
+# 使用正确的命令使所有 .d 目录下的配置生效
+sysctl_apply_output=$(sysctl --system 2>&1)
+
+
+echo "正在写入 Ulimit 配置文件: $LIMITS_CONF_FILE"
 {
     echo ""
     echo "$LIMITS_MARKER_START"
@@ -155,15 +154,15 @@ fi
     echo "root soft nofile $ulimit_n"
     echo "root hard nofile $ulimit_n"
     echo "$LIMITS_MARKER_END"
-} >> "$LIMITS_CONF_FILE"
+} > "$LIMITS_CONF_FILE"
 
 # --- 生成并打印最终报告 ---
 echo "======================================================================"
 echo "          优化完成 - '${strategy}' 策略已应用"
 echo "======================================================================"
 echo
-echo "- 系统内核参数已写入 /etc/sysctl.conf"
-echo "- Ulimit (文件描述符) 已设置为 $ulimit_n"
+echo "- 系统内核参数已写入独立的配置文件: $SYSCTL_CONF_FILE"
+echo "- Ulimit 配置已写入独立的配置文件: $LIMITS_CONF_FILE"
 echo "- $bbr_status_message"
 echo
 
@@ -173,11 +172,11 @@ echo "- Ulimit 设置提示: 需要重新登录 SSH 会话才能对新会话完�
 
 if [[ -n "$sysctl_apply_output" && ! "$sysctl_apply_output" =~ ^$ ]]; then
     echo
-    echo "--- 'sysctl -p' 生效时输出 (请检查是否存在错误): ---"
+    echo "--- 'sysctl --system' 生效时输出 (请检查是否存在错误): ---"
     echo "$sysctl_apply_output"
     echo "--------------------------------------------------"
 fi
 echo
 echo "======================================================================"
-echo "所有优化已写入 /etc/sysctl.conf 和 /etc/security/limits.conf"
+echo "优化已完成，请重启服务器以确保所有更改完全生效。"
 echo "======================================================================"

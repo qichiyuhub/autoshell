@@ -4,7 +4,7 @@ set -o pipefail
 
 #================================================================================
 #
-#           Linux 网络性能优化脚本
+#           Linux 网络性能优化脚本（只适用于debian）
 #
 #================================================================================
 
@@ -40,60 +40,74 @@ apply_sysctl_value() {
 # 根据内存大小确定优化策略
 mem_total_kb=$(grep MemTotal /proc/meminfo | awk '{print $2}')
 mem_total_mb=$((mem_total_kb / 1024))
-strategy="small_memory_optimized"
+strategy="dedicated_proxy_le_2gb" # 默认策略适用于小内存专用服务器
 if [ "$mem_total_mb" -gt 2000 ]; then
-    strategy="high_performance"
+    strategy="high_performance_gt_2gb"
 fi
 
 # 定义参数模板
 declare -A sysctl_values
 declare ulimit_n
 
-if [ "$strategy" == "small_memory_optimized" ]; then
-    ### 小内存优化策略 ###
-    ulimit_n=65536
-    sysctl_values=(
-        ["net.core.somaxconn"]="8192"
-        ["net.ipv4.tcp_max_syn_backlog"]="8192"
-        ["net.core.netdev_max_backlog"]="8192"
-        ["net.core.rmem_max"]="4194304"
-        ["net.core.wmem_max"]="4194304"
-        ["net.ipv4.tcp_rmem"]="4096 131072 4194304"
-        ["net.ipv4.tcp_wmem"]="4096 16384 4194304"
-        ["net.ipv4.tcp_fin_timeout"]="30"
-        ["net.ipv4.tcp_keepalive_time"]="1800"
-        ["net.ipv4.tcp_keepalive_intvl"]="60"
-        ["net.ipv4.tcp_keepalive_probes"]="5"
-    )
-else # high_performance
-    ### 高性能优化策略 ###
+if [ "$strategy" == "dedicated_proxy_le_2gb" ]; then
+    ### 策略1: <= 2GB 内存的专用代理服务器 ###
+    # 此策略专为内存有限但带宽高的代理/网关服务器设计
     ulimit_n=1048576
     sysctl_values=(
+        # --- 连接队列 ---
         ["net.core.somaxconn"]="65535"
         ["net.ipv4.tcp_max_syn_backlog"]="65535"
         ["net.core.netdev_max_backlog"]="65535"
+        # --- TCP 缓冲区 (32MB) ---
         ["net.core.rmem_max"]="33554432"
         ["net.core.wmem_max"]="33554432"
-        ["net.ipv4.tcp_rmem"]="4096 131072 33554432"
-        ["net.ipv4.tcp_wmem"]="4096 65536 33554432"
+        ["net.ipv4.tcp_rmem"]="8192 87380 33554432"
+        ["net.ipv4.tcp_wmem"]="8192 87380 33554432"
+        # --- TCP 连接管理 ---
         ["net.ipv4.tcp_fin_timeout"]="30"
-        ["net.ipv4.tcp_keepalive_time"]="600"
+        ["net.ipv4.tcp_keepalive_time"]="300"
+        ["net.ipv4.tcp_keepalive_intvl"]="60"
+        ["net.ipv4.tcp_keepalive_probes"]="5"
+        ["net.ipv4.tcp_tw_reuse"]="1"
+    )
+else # high_performance_gt_2gb
+    ### 策略2: > 2GB 内存的高性能通用服务器 ###
+    # 适用于内存充裕，追求极致性能的服务器
+    ulimit_n=1048576
+    sysctl_values=(
+        # --- 连接队列 ---
+        ["net.core.somaxconn"]="65535"
+        ["net.ipv4.tcp_max_syn_backlog"]="65535"
+        ["net.core.netdev_max_backlog"]="65535"
+        # --- TCP 缓冲区 (64MB) ---
+        ["net.core.rmem_max"]="67108864"
+        ["net.core.wmem_max"]="67108864"
+        ["net.ipv4.tcp_rmem"]="8192 87380 67108864"
+        ["net.ipv4.tcp_wmem"]="8192 87380 67108864"
+        # --- TCP 连接管理 ---
+        ["net.ipv4.tcp_fin_timeout"]="30"
+        ["net.ipv4.tcp_keepalive_time"]="300"
         ["net.ipv4.tcp_keepalive_intvl"]="30"
         ["net.ipv4.tcp_keepalive_probes"]="5"
+        ["net.ipv4.tcp_tw_reuse"]="1"
     )
 fi
 
 # ==============================================================================
-#      通用参数
+#      通用参数 (对所有策略生效)
 # ==============================================================================
 
-# 智能处理 fs.file-max
+# 智能处理 fs.file-max, 确保足够大
 current_file_max=$(sysctl -n fs.file-max)
 target_file_max=$(( ulimit_n * 10 ))
 if (( current_file_max < target_file_max )); then
     sysctl_values["fs.file-max"]="$target_file_max"
 fi
 
+# 提升连接建立速度
+sysctl_values["net.ipv4.tcp_fastopen"]="3"
+
+# 安全与系统响应
 sysctl_values["net.ipv4.conf.all.accept_redirects"]="0"
 sysctl_values["net.ipv4.conf.all.send_redirects"]="0"
 sysctl_values["net.ipv6.conf.all.accept_redirects"]="0"
@@ -101,7 +115,7 @@ sysctl_values["vm.swappiness"]="10"
 
 # 主动尝试加载并启用 BBR
 bbr_status_message="BBR: 内核不支持或模块加载失败。"
-modprobe tcp_bbr >/dev/null 2>&1
+modprobe tcp_bbr >/dev/null 2 outlandish
 if [[ $(sysctl -n net.ipv4.tcp_available_congestion_control) == *"bbr"* ]]; then
     sysctl_values["net.core.default_qdisc"]="fq"
     sysctl_values["net.ipv4.tcp_congestion_control"]="bbr"

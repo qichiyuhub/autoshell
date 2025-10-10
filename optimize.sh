@@ -61,8 +61,8 @@ if [ "$strategy" == "dedicated_proxy_le_2gb" ]; then
         # --- TCP 缓冲区 (32MB) ---
         ["net.core.rmem_max"]="33554432"
         ["net.core.wmem_max"]="33554432"
-        ["net.ipv4.tcp_rmem"]="8192 87380 33554432"
-        ["net.ipv4.tcp_wmem"]="8192 87380 33554432"
+        ["net.ipv4.tcp_rmem"]="4096 87380 33554432"
+        ["net.ipv4.tcp_wmem"]="4096 87380 33554432"
         # --- TCP 连接管理 ---
         ["net.ipv4.tcp_fin_timeout"]="30"
         ["net.ipv4.tcp_keepalive_time"]="300"
@@ -82,8 +82,8 @@ else # high_performance_gt_2gb
         # --- TCP 缓冲区 (64MB) ---
         ["net.core.rmem_max"]="67108864"
         ["net.core.wmem_max"]="67108864"
-        ["net.ipv4.tcp_rmem"]="8192 87380 67108864"
-        ["net.ipv4.tcp_wmem"]="8192 87380 67108864"
+        ["net.ipv4.tcp_rmem"]="4096 87380 67108864"
+        ["net.ipv4.tcp_wmem"]="4096 87380 67108864"
         # --- TCP 连接管理 ---
         ["net.ipv4.tcp_fin_timeout"]="30"
         ["net.ipv4.tcp_keepalive_time"]="300"
